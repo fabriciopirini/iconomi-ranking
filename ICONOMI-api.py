@@ -1,14 +1,9 @@
-import json
 from typing import Dict
 
 import requests
 from concurrent.futures import as_completed
 from pydantic import BaseModel
 from requests_futures.sessions import FuturesSession
-
-
-# Custom types
-Strategy = dict[str, int]
 
 
 class StrategyTicker(BaseModel):
@@ -54,7 +49,7 @@ def float_format(number: float) -> float:
     return float(f"{number:.2f}")
 
 
-def remove_key_from_stats(ticker_perf: Strategy, key: str):
+def remove_key_from_stats(ticker_perf: StrategyStats, key: str) -> StrategyStats:
     ticker_perf["returns"].pop(key, None)
     ticker_perf["volatility"].pop(key, None)
     ticker_perf["maxDrawdown"].pop(key, None)
@@ -65,28 +60,20 @@ def remove_key_from_stats(ticker_perf: Strategy, key: str):
 def extract_statistics(ticker_perf: dict[str], weighted=False) -> tuple[int]:
     ticker_perf = remove_key_from_stats(ticker_perf, "ALL_TIME")
 
-    returns_avg = dict_values_average(ticker_perf["returns"], weighted=weighted)
-    volatility_avg = dict_values_average(ticker_perf["volatility"], weighted=weighted)
-    maxdrawdown_avg = dict_values_average(ticker_perf["maxDrawdown"], weighted=weighted)
+    returns = dict_values_average(ticker_perf["returns"], weighted=weighted)
+    volatility = dict_values_average(ticker_perf["volatility"], weighted=weighted)
+    maxdrawdown = dict_values_average(ticker_perf["maxDrawdown"], weighted=weighted)
 
-    return (returns_avg, volatility_avg, maxdrawdown_avg)
-
-
-def extract_weighted_statistics(ticker_perf: dict[str]) -> tuple[int]:
-    ticker_perf = remove_key_from_stats(ticker_perf, "ALL_TIME")
-
-    returns_avg = dict_values_average(ticker_perf["returns"])
-    volatility_avg = dict_values_average(ticker_perf["volatility"])
-    maxdrawdown_avg = dict_values_average(ticker_perf["maxDrawdown"])
-
-    return (returns_avg, volatility_avg, maxdrawdown_avg)
+    return (returns, volatility, maxdrawdown)
 
 
-def sort_performances(data: list[Strategy]) -> list[Strategy]:
-    return sorted(data, key=lambda x: x["returns_avg"], reverse=True)
+def sort_performances(data: list[StrategyStatsAvg]) -> list[StrategyStatsAvg]:
+    return sorted(data, key=lambda x: x["returns"], reverse=True)
 
 
-def fetch_strategies_performance(strategies: list[Strategy]) -> list[Strategy]:
+def fetch_strategies_performance(
+    strategies: list[StrategyTicker],
+) -> list[StrategyStats]:
     responses = []
 
     with FuturesSession() as session:
@@ -113,7 +100,7 @@ def fetch_strategies_performance(strategies: list[Strategy]) -> list[Strategy]:
     return responses
 
 
-def fetch_strategies_balance(strategies: list[Strategy]) -> dict[Strategy]:
+def fetch_strategies_balance(strategies: list[StrategyTicker]) -> dict[StrategyStats]:
     balances = {}
 
     with FuturesSession() as session:
@@ -140,12 +127,12 @@ def fetch_strategies_balance(strategies: list[Strategy]) -> dict[Strategy]:
 
 
 def process_performance_data(
-    responses: list[Strategy], weighted=False
-) -> list[Strategy]:
+    responses: list[StrategyStats], weighted=False
+) -> list[StrategyStatsAvg]:
     performance = []
 
     for response in responses:
-        (returns_avg, volatility_avg, maxdrawdown_avg) = extract_statistics(
+        (returns, volatility, maxdrawdown) = extract_statistics(
             response, weighted=weighted
         )
 
@@ -153,9 +140,9 @@ def process_performance_data(
             {
                 "ticker": response["ticker"],
                 "name": response["name"],
-                "returns_avg": returns_avg,
-                "volatility_avg": volatility_avg,
-                "maxDrawdown_avg": maxdrawdown_avg,
+                "returns": returns,
+                "volatility": volatility,
+                "maxDrawdown": maxdrawdown,
             }
         )
 
@@ -163,30 +150,30 @@ def process_performance_data(
 
 
 def filter_strategies_by_aum(
-    strategies: list[Strategy], aum_min: int
-) -> list[Strategy]:
+    strategies: list[StrategyTicker], aum_min: int
+) -> list[StrategyTicker]:
     balances = fetch_strategies_balance(strategies)
     return [
         strategy for strategy in strategies if balances.get(strategy["name"]) >= aum_min
     ]
 
 
-def print_strategy_list(strategies: list[Strategy]) -> None:
+def print_strategy_list(strategies: list[StrategyStatsAvg]) -> None:
     for strategy in strategies:
         print(
             StrategyStatsAvg(
                 ticker=strategy["ticker"],
                 name=strategy["name"],
-                returns=float_format(strategy["returns_avg"]),
-                volatility=float_format(strategy["volatility_avg"]),
-                maxDrawdown=float_format(strategy["maxDrawdown_avg"]),
+                returns=float_format(strategy["returns"]),
+                volatility=float_format(strategy["volatility"]),
+                maxDrawdown=float_format(strategy["maxDrawdown"]),
             )
         )
 
 
 def print_results(
-    strategies: list[Strategy],
-    strategies_weighted: list[Strategy],
+    strategies: list[StrategyStatsAvg],
+    strategies_weighted: list[StrategyStatsAvg],
     aum_min: int,
     num_strategies: int,
 ) -> None:
@@ -212,16 +199,12 @@ if __name__ == "__main__":
         for perf in process_performance_data(responses, weighted=False)
         if perf["ticker"] not in blacklist
     ]
-    json_formatted_str = json.dumps(sort_performances(performance)[:15], indent=4)
 
     performance_weighted = [
         perf
         for perf in process_performance_data(responses, weighted=True)
         if perf["ticker"] not in blacklist
     ]
-    weighted_json_formatted_str = json.dumps(
-        sort_performances(performance_weighted)[:15], indent=4
-    )
 
     print_results(
         strategies=performance,
