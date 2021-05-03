@@ -1,12 +1,35 @@
-import requests
 import json
+from typing import Dict
 
+import requests
 from concurrent.futures import as_completed
+from pydantic import BaseModel
 from requests_futures.sessions import FuturesSession
 
 
 # Custom types
 Strategy = dict[str, int]
+
+
+class StrategyTicker(BaseModel):
+    ticker: str
+    name: str
+
+
+class StrategyStats(BaseModel):
+    ticker: str
+    name: str
+    returns: Dict[str, float]
+    volatility: Dict[str, float]
+    maxDrawdown: Dict[str, float]
+
+
+class StrategyStatsAvg(BaseModel):
+    ticker: str
+    name: str
+    returns: float
+    volatility: float
+    maxDrawdown: float
 
 
 def dict_values_average(int_list: dict[str, float], weighted=False) -> int:
@@ -57,20 +80,6 @@ def extract_weighted_statistics(ticker_perf: dict[str]) -> tuple[int]:
     maxdrawdown_avg = dict_values_average(ticker_perf["maxDrawdown"])
 
     return (returns_avg, volatility_avg, maxdrawdown_avg)
-
-
-def human_readable_print(data: list[Strategy]) -> list[Strategy]:
-    human_readable_data = []
-    for ticker in data:
-        human_readable_data.append(
-            {
-                **ticker,
-                "returns_avg": float_format(ticker["returns_avg"]),
-                "volatility_avg": float_format(ticker["volatility_avg"]),
-                "maxDrawdown_avg": float_format(ticker["maxDrawdown_avg"]),
-            }
-        )
-    return human_readable_data
 
 
 def sort_performances(data: list[Strategy]) -> list[Strategy]:
@@ -162,9 +171,35 @@ def filter_strategies_by_aum(
     ]
 
 
+def print_strategy_list(strategies: list[Strategy]) -> None:
+    for strategy in strategies:
+        print(
+            StrategyStatsAvg(
+                ticker=strategy["ticker"],
+                name=strategy["name"],
+                returns=float_format(strategy["returns_avg"]),
+                volatility=float_format(strategy["volatility_avg"]),
+                maxDrawdown=float_format(strategy["maxDrawdown_avg"]),
+            )
+        )
+
+
+def print_results(
+    strategies: list[Strategy],
+    strategies_weighted: list[Strategy],
+    aum_min: int,
+    num_strategies: int,
+) -> None:
+    print(f"NUMBER OF WITH AUM HIGHER THAN {aum_min/1_000_000}M: {num_strategies}")
+    print("\nPURE STATS RANKING")
+    print_strategy_list(sort_performances(strategies)[:15])
+    print("\nWEIGHTED STATS RANKING")
+    print_strategy_list(sort_performances(strategies_weighted)[:15])
+
+
 if __name__ == "__main__":
     blacklist = []
-    aum_min = 1_000_000
+    aum_min = 500_000
 
     strategies = requests.get("https://api.iconomi.com/v1/strategies").json()
 
@@ -177,9 +212,7 @@ if __name__ == "__main__":
         for perf in process_performance_data(responses, weighted=False)
         if perf["ticker"] not in blacklist
     ]
-    json_formatted_str = json.dumps(
-        human_readable_print(sort_performances(performance))[:15], indent=4
-    )
+    json_formatted_str = json.dumps(sort_performances(performance)[:15], indent=4)
 
     performance_weighted = [
         perf
@@ -187,8 +220,12 @@ if __name__ == "__main__":
         if perf["ticker"] not in blacklist
     ]
     weighted_json_formatted_str = json.dumps(
-        sort_performances(human_readable_print(performance_weighted))[:15], indent=4
+        sort_performances(performance_weighted)[:15], indent=4
     )
 
-    print(json_formatted_str)
-    print(weighted_json_formatted_str)
+    print_results(
+        strategies=performance,
+        strategies_weighted=performance_weighted,
+        aum_min=aum_min,
+        num_strategies=len(responses),
+    )
