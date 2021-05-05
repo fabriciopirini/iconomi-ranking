@@ -1,8 +1,10 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from concurrent.futures import as_completed
 from pydantic import BaseModel
 from requests_futures.sessions import FuturesSession
+from tabulate import tabulate
+
 
 class StrategyTicker(BaseModel):
     ticker: str
@@ -170,13 +172,40 @@ def print_strategy_list(strategies: list[StrategyStatsAvg]) -> None:
 
 
 def print_results(
+    *,
     strategies: list[StrategyStatsAvg],
     strategies_weighted: list[StrategyStatsAvg],
-    aum_min: int,
-    num_strategies: int,
+    num_to_be_printed: Optional[int] = 10,
 ) -> None:
-    print(f"NUMBER OF WITH AUM HIGHER THAN {aum_min/1_000_000}M: {num_strategies}")
-    print("\nPURE STATS RANKING")
-    print_strategy_list(sort_performances(strategies)[:15])
+    print("PURE STATS RANKING")
+    print_strategy_list(strategies[:num_to_be_printed])
     print("\nWEIGHTED STATS RANKING")
-    print_strategy_list(sort_performances(strategies_weighted)[:15])
+    print_strategy_list(strategies_weighted[:num_to_be_printed])
+
+
+def merge_two_rankings(
+    *, rank1: list[StrategyStatsAvg], rank2: list[StrategyStatsAvg]
+) -> list[StrategyStatsAvg]:
+    rank1_dict = {
+        strategy["name"]: i for (i, strategy) in enumerate(sort_performances(rank1))
+    }
+
+    rank2_dict = {
+        strategy["name"]: i for (i, strategy) in enumerate(sort_performances(rank2))
+    }
+
+    table = [
+        [strategy, i + 1, rank2_dict[strategy] + 1]
+        for (i, strategy) in enumerate(rank1_dict.keys())
+    ]
+
+    print(
+        tabulate(
+            table,
+            headers=[
+                "NAME",
+                "LINEAR",
+                "WEIGHTED",
+            ],
+        )
+    )
